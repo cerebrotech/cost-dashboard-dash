@@ -323,12 +323,15 @@ def update(time_span, user, project, billing_tag):
     users = cost_table['USER'].unique().tolist()
     projects = cost_table['PROJECT NAME'].unique().tolist()
     billing_tags = cost_table['BILLING TAG'].unique().tolist()
-    
+
+    cost_table_grouped_by_date = cost_table.groupby('FORMATTED START')
+    unique_dates = cost_table['FORMATTED START'].unique()
+
     cumulative_cost_graph = {
         'data': [
             go.Bar(
-                x=cost_table['FORMATTED START'],
-                y=cost_table[column],
+                x=unique_dates,
+                y=cost_table_grouped_by_date[column].sum(),
                 name=column
             ) for column in ['CPU COST', 'GPU COST', 'STORAGE COST']
         ],
