@@ -18,34 +18,42 @@ from collections import defaultdict
 from typing import Dict, List
 from datetime import datetime, timedelta
 
-api_proxy = os.environ["DOMINO_API_PROXY"]
+# api_proxy = os.environ["DOMINO_API_PROXY"]
 
-def get_domino_namespace() -> str:
-    api_host = os.environ["DOMINO_API_HOST"]
-    pattern = re.compile("(https?://)((.*\.)*)(?P<ns>.*?):(\d*)\/?(.*)")
-    match = pattern.match(api_host)
-    return match.group("ns")
+# def get_domino_namespace() -> str:
+#     api_host = os.environ["DOMINO_API_HOST"]
+#     pattern = re.compile("(https?://)((.*\.)*)(?P<ns>.*?):(\d*)\/?(.*)")
+#     match = pattern.match(api_host)
+#     return match.group("ns")
 
-namespace = get_domino_namespace()
+# namespace = get_domino_namespace()
 
-base_url = f"http://domino-cost.{namespace}:9000"
+# base_url = f"http://domino-cost.{namespace}:9000"
+# assets_url = f"{base_url}/asset"
+# allocations_url = f"{base_url}/allocation"
+
+# auth_url = f"{api_proxy}/account/auth/service/authenticate"
+
+# class TokenExpiredException(Exception):
+#     pass
+
+# def get_token() -> str:
+#     orgs_res = requests.get(auth_url)  
+#     token = orgs_res.content.decode('utf-8')
+#     if token == "<ANONYMOUS>":
+#         raise TokenExpiredException("Your token has expired. Please redeploy your Domino Cost App.")
+#     return token
+ 
+# auth_header = { 
+#     'X-Authorization': get_token()
+# }
+
+base_url = f"https://se-demo.domino.tech/v4/cost"
 assets_url = f"{base_url}/asset"
 allocations_url = f"{base_url}/allocation"
 
-auth_url = f"{api_proxy}/account/auth/service/authenticate"
-
-class TokenExpiredException(Exception):
-    pass
-
-def get_token() -> str:
-    orgs_res = requests.get(auth_url)  
-    token = orgs_res.content.decode('utf-8')
-    if token == "<ANONYMOUS>":
-        raise TokenExpiredException("Your token has expired. Please redeploy your Domino Cost App.")
-    return token
- 
 auth_header = { 
-    'X-Authorization': get_token()
+    'Cookie': "dominoSession=c0ba5b6d-2255-4aa5-a0ad-373f0bfcd341; intercom-device-id-ca1ff9b9b3e6ec502dd74ef8356046ed57cefec8=73495fc5-1018-496d-a3d1-5b9d0d07bba0; kc_session_state=b19c55bf-a627-4a5b-a664-8fd4595800a4; PLAY_SESSION=eyJhbGciOiJIUzI1NiJ9.eyJkYXRhIjp7InBhYzRqU2Vzc2lvbklkIjoiNTBmNDY3ZmQtOWEwZS00MDY1LWJlZTYtM2ZjYThjM2ZmODA1IiwiY3NyZlRva2VuIjoiNjdjZGNlM2ViZjA0M2YwZmNmMTBlODM5ZTQ5NjU1OTkxMmQ2ZDM3ZS0xNzEzOTYzODU4ODYwLTQyMzMzMWJlOWIwMDkxN2EzNjAyMzQwOSJ9LCJuYmYiOjE3MTM5NjM4NTgsImlhdCI6MTcxMzk2Mzg1OH0.RH8K5e3-97qAnNk063Xsh6bg3UfZovIUtPdZpvtGnhU; mp_deda62592662fbc1ec09147d096a5f1a_mixpanel=%7B%22distinct_id%22%3A%20%226628f8587b088b622c625cdc%22%2C%22%24initial_referrer%22%3A%20%22https%3A%2F%2Fse-demo.domi"
 }
 
 window_to_param = {
@@ -53,6 +61,16 @@ window_to_param = {
     "14d": "Last 14 days",
     "lastweek": "Last week"
 }
+
+def get_today_timestamp():
+    return pd.Timestamp("today", tz="UTC").normalize()
+
+def get_time_delta(time_span):
+        if time_span == 'lastweek':
+            days_to_use = 7
+        else:
+            days_to_use = int(time_span.split('d')[0])
+        return timedelta(days=days_to_use-1)
 
 def get_aggregated_allocations(selection):
     params = {
@@ -110,6 +128,9 @@ def get_execution_cost_table(aggregated_allocations: List) -> pd.DataFrame:
             "TOTAL COST": total_cost
         })
     execution_costs = pd.DataFrame(exec_data)
+
+    execution_costs['START'] = pd.to_datetime(execution_costs['START'])
+    execution_costs['FORMATTED START'] = execution_costs['START'].dt.strftime('%B %-d')
     
     return execution_costs
 
@@ -127,12 +148,13 @@ def buildHistogram(cost_table, bin_by):
     
     return chart
 
-requests_pathname_prefix = '/{}/{}/r/notebookSession/{}/'.format(
-    os.environ.get("DOMINO_PROJECT_OWNER"),
-    os.environ.get("DOMINO_PROJECT_NAME"),
-    os.environ.get("DOMINO_RUN_ID")
-)
-app = dash.Dash(__name__, external_stylesheets=[dbc.themes.BOOTSTRAP], routes_pathname_prefix=None, requests_pathname_prefix=requests_pathname_prefix)
+# requests_pathname_prefix = '/{}/{}/r/notebookSession/{}/'.format(
+#     os.environ.get("DOMINO_PROJECT_OWNER"),
+#     os.environ.get("DOMINO_PROJECT_NAME"),
+#     os.environ.get("DOMINO_RUN_ID")
+# )
+# app = dash.Dash(__name__, external_stylesheets=[dbc.themes.BOOTSTRAP], routes_pathname_prefix=None, requests_pathname_prefix=requests_pathname_prefix)
+app = dash.Dash(__name__, external_stylesheets=[dbc.themes.BOOTSTRAP])
 
 app.layout = html.Div([
     html.H2('Domino Cost Management Report', style = {'textAlign': 'center', "margin-top": "30px"}),
@@ -304,8 +326,6 @@ app.layout = html.Div([
 def update(time_span, user, project, billing_tag):
     allocations = get_aggregated_allocations(time_span)
     cost_table = get_execution_cost_table(allocations)
-    cost_table['START'] = pd.to_datetime(cost_table['START'])
-    cost_table['FORMATTED START'] = cost_table['START'].dt.strftime('%B %-d')
     
     if user is not None:
         cost_table = cost_table[cost_table['USER'] == user]
@@ -324,14 +344,15 @@ def update(time_span, user, project, billing_tag):
     projects = cost_table['PROJECT NAME'].unique().tolist()
     billing_tags = cost_table['BILLING TAG'].unique().tolist()
 
+    
+    x_date_series = pd.date_range(get_today_timestamp() - get_time_delta(time_span), get_today_timestamp()).strftime('%B %-d')
     cost_table_grouped_by_date = cost_table.groupby('FORMATTED START')
-    unique_dates = cost_table['FORMATTED START'].unique()
 
     cumulative_cost_graph = {
         'data': [
             go.Bar(
-                x=unique_dates,
-                y=cost_table_grouped_by_date[column].sum(),
+                x=x_date_series,
+                y=cost_table_grouped_by_date[column].sum().reindex(x_date_series, fill_value=0),
                 name=column
             ) for column in ['CPU COST', 'GPU COST', 'STORAGE COST']
         ],
@@ -406,4 +427,4 @@ def user_clicked(clickData):
         return [None]
 
 if __name__ == '__main__':
-    app.run_server(host='0.0.0.0',port=8888) # Domino hosts all apps at 0.0.0.0:8888
+    app.run_server(host='0.0.0.0',port=8889) # Domino hosts all apps at 0.0.0.0:8888
