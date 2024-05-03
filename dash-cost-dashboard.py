@@ -35,20 +35,20 @@ class TokenExpiredException(Exception):
     pass
 
 def get_token() -> str:
-    orgs_res = requests.get(auth_url)  
+    orgs_res = requests.get(auth_url)
     token = orgs_res.content.decode('utf-8')
     if token == "<ANONYMOUS>":
         raise TokenExpiredException("Your token has expired. Please redeploy your Domino Cost App.")
     return token
- 
-auth_header = { 
+
+auth_header = {
     'X-Authorization': get_token()
 }
 
 window_to_param = {
     "30d": "Last 30 days",
     "14d": "Last 14 days",
-    "lastweek": "Last week"
+    "lastweek": "Last 7 days"
 }
 
 def get_today_timestamp():
@@ -75,12 +75,12 @@ def get_aggregated_allocations(selection):
         "accumulate": False,
     }
 
-    
-    res = requests.get(allocations_url, params=params, headers=auth_header)  
-    
-    res.raise_for_status() 
+
+    res = requests.get(allocations_url, params=params, headers=auth_header)
+
+    res.raise_for_status()
     alloc_data = res.json()["data"]
-   
+
     filtered = filter(lambda costData: costData["name"] != "__idle__", alloc_data)
 
     return list(filtered)
@@ -94,7 +94,7 @@ def get_execution_cost_table(aggregated_allocations: List) -> pd.DataFrame:
     storage_cost_keys = ["pvCost", "ramCost", "pvCostAdjustment", "ramCostAdjustment"]
 
     data = [costData for costData in aggregated_allocations if not costData["name"].startswith("__")]
-    
+
     for costData in data:
         workload_type, project_id, project_name, username, organization, billing_tag = costData["name"].split("/")
         cpu_cost = sum([costData.get(k,0) for k in cpu_cost_key])
@@ -120,21 +120,21 @@ def get_execution_cost_table(aggregated_allocations: List) -> pd.DataFrame:
 
     execution_costs['START'] = pd.to_datetime(execution_costs['START'])
     execution_costs['FORMATTED START'] = execution_costs['START'].dt.strftime('%B %-d')
-    
+
     return execution_costs
 
 def buildHistogram(cost_table, bin_by):
     top = cost_table.groupby(bin_by)['TOTAL COST'].sum().nlargest(10).index
     costs = cost_table[cost_table[bin_by].isin(top)]
     title = "Top " + bin_by.title() + " by Total Cost"
-    chart = px.histogram(costs, x='TOTAL COST', y=bin_by, orientation='h', 
+    chart = px.histogram(costs, x='TOTAL COST', y=bin_by, orientation='h',
                               title=title, labels={bin_by: bin_by.title(), 'TOTAL COST': 'Total Cost'},
                               hover_data={'TOTAL COST': '$:.2f'},
                               category_orders={bin_by: costs.groupby(bin_by)['TOTAL COST'].sum().sort_values(ascending=False).index})
     chart.update_layout(title_text=title, title_x=0.5, xaxis_tickprefix = '$', xaxis_tickformat = ',.')
     chart.update_xaxes(title_text="Total Cost")
     chart.update_traces(hovertemplate='$%{x:.2f}<extra></extra>')
-    
+
     return chart
 
 requests_pathname_prefix = '/{}/{}/r/notebookSession/{}/'.format(
@@ -317,24 +317,24 @@ def update(time_span, user, project, billing_tag):
         return {}, html.H4('No data'), html.H4('No data'), html.H4('No data'), [], [], [], None, None, None, None, None
 
     cost_table = get_execution_cost_table(allocations)
-    
+
     if user is not None:
         cost_table = cost_table[cost_table['USER'] == user]
-        
+
     if project is not None:
         cost_table = cost_table[cost_table['PROJECT NAME'] == project]
-        
+
     if billing_tag is not None:
         cost_table = cost_table[cost_table['BILLING TAG'] == billing_tag]
-    
+
     total_sum = "${:.2f}".format(cost_table['TOTAL COST'].sum())
     compute_sum = "${:.2f}".format(cost_table['COMPUTE COST'].sum())
     storage_sum = "${:.2f}".format(cost_table['STORAGE COST'].sum())
-    
+
     users = cost_table['USER'].unique().tolist()
     projects = cost_table['PROJECT NAME'].unique().tolist()
     billing_tags = cost_table['BILLING TAG'].unique().tolist()
-    
+
     x_date_series = pd.date_range(get_today_timestamp() - get_time_delta(time_span), get_today_timestamp()).strftime('%B %-d')
     cost_table_grouped_by_date = cost_table.groupby('FORMATTED START')
 
@@ -353,12 +353,12 @@ def update(time_span, user, project, billing_tag):
             yaxis_tickformat = ',.'
         )
     }
-    
+
     user_chart = buildHistogram(cost_table, 'USER')
     project_chart = buildHistogram(cost_table, 'PROJECT NAME')
     org_chart = buildHistogram(cost_table, 'ORGANIZATION')
     tag_chart = buildHistogram(cost_table, 'BILLING TAG')
-    
+
     formatted = {'locale': {}, 'nully': '', 'prefix': None, 'specifier': '$,.2f'}
     table = dash_table.DataTable(
         columns=[
@@ -380,7 +380,7 @@ def update(time_span, user, project, billing_tag):
             'fontWeight': 'bold'
         }
     )
-    
+
     return cumulative_cost_graph, html.H4(total_sum), html.H4(compute_sum), html.H4(storage_sum), billing_tags, projects, users, user_chart, project_chart, org_chart, tag_chart, table
 
 @app.callback(
@@ -393,7 +393,7 @@ def user_clicked(clickData):
         return [x_value]
     else:
         return [None]
-    
+
 @app.callback(
     [Output('project_select', 'value')],
     [Input('project_chart', 'clickData')]
