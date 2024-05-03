@@ -45,6 +45,8 @@ auth_header = {
     'X-Authorization': get_token()
 }
 
+NO_TAG = "No tag"
+
 window_to_param = {
     "30d": "Last 30 days",
     "14d": "Last 14 days",
@@ -104,7 +106,7 @@ def get_execution_cost_table(aggregated_allocations: List) -> pd.DataFrame:
         total_cost = compute_cost + storage_cost
 
         # Change __unallocated__ billing tag into "No Tag"
-        billing_tag = billing_tag if billing_tag != '__unallocated__' else "No tag"
+        billing_tag = billing_tag if billing_tag != '__unallocated__' else NO_TAG
 
         exec_data.append({
             "TYPE": workload_type,
@@ -336,9 +338,14 @@ def update(time_span, user, project, billing_tag):
     compute_sum = "${:.2f}".format(cost_table['COMPUTE COST'].sum())
     storage_sum = "${:.2f}".format(cost_table['STORAGE COST'].sum())
 
-    users = cost_table['USER'].unique().tolist()
-    projects = cost_table['PROJECT NAME'].unique().tolist()
-    billing_tags = cost_table['BILLING TAG'].unique().tolist()
+    users = sorted(cost_table['USER'].unique().tolist(), key=str.casefold)
+    projects = sorted(cost_table['PROJECT NAME'].unique().tolist(), key=str.casefold)
+
+    # Order billing-tags alphabetically and set "No tag" as the first item
+    unique_billing_tags = cost_table['BILLING TAG'].unique()
+    unique_billing_tags = unique_billing_tags[unique_billing_tags != NO_TAG]
+    billing_tags = sorted(unique_billing_tags.tolist(), key=str.casefold)
+    billing_tags.insert(0, NO_TAG)
 
     x_date_series = pd.date_range(get_today_timestamp() - get_time_delta(time_span), get_today_timestamp()).strftime('%B %-d')
     cost_table_grouped_by_date = cost_table.groupby('FORMATTED START')
