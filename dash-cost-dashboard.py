@@ -294,7 +294,8 @@ app.layout = html.Div([
         )
     ]),
     html.H4('Workload Cost Details', style={"margin-top": "50px"}),
-    html.Div(id='table-container')
+    html.Div(id='table-container'),
+    dbc.Row([], style={"margin-top": "50px"}),
 ], className="container")
 
 @app.callback(
