@@ -85,19 +85,16 @@ def get_aggregated_allocations(selection):
 
     return alloc_data
 
-def get_execution_cost_table(aggregated_allocations: List) -> pd.DataFrame:
 
+def get_execution_cost_table(aggregated_allocations: List) -> pd.DataFrame:
     exec_data = []
+    idle_executions = []
 
     cpu_cost_key = ["cpuCost", "cpuCostAdjustment"]
     gpu_cost_key = ["gpuCost", "gpuCostAdjustment"]
     storage_cost_keys = ["pvCost", "ramCost", "pvCostAdjustment", "ramCostAdjustment"]
 
     for costData in aggregated_allocations:
-        # Skip any cost data that starts with __ like __idle__ or __unallocated__
-        if costData["name"].startswith("__"):
-            continue
-
         workload_type, project_id, project_name, username, organization, billing_tag = costData["name"].split("/")
         cpu_cost = sum([costData.get(k,0) for k in cpu_cost_key])
         gpu_cost = sum([costData.get(k,0) for k in gpu_cost_key])
@@ -108,7 +105,7 @@ def get_execution_cost_table(aggregated_allocations: List) -> pd.DataFrame:
         # Change __unallocated__ billing tag into "No Tag"
         billing_tag = billing_tag if billing_tag != '__unallocated__' else NO_TAG
 
-        exec_data.append({
+        data = {
             "TYPE": workload_type,
             "PROJECT NAME": project_name,
             "BILLING TAG": billing_tag,
@@ -121,13 +118,38 @@ def get_execution_cost_table(aggregated_allocations: List) -> pd.DataFrame:
             "COMPUTE COST": compute_cost,
             "STORAGE COST": storage_cost,
             "TOTAL COST": total_cost
-        })
+        }
+
+        # Check if this execution is a platform type one.
+        if costData["name"].startswith("__"):
+            idle_executions.append(data)
+        else:
+            exec_data.append(data)
+
+    if not exec_data:
+        return None
+
     execution_costs = pd.DataFrame(exec_data)
 
     execution_costs['START'] = pd.to_datetime(execution_costs['START'])
     execution_costs['FORMATTED START'] = execution_costs['START'].dt.strftime('%B %-d')
 
+    if idle_executions:
+        distribute_platform_costs(execution_costs, idle_executions)
+
     return execution_costs
+
+
+def distribute_platform_costs(execution_costs: pd.DataFrame, platform_executions: list) -> None:
+    costs_keys = ["TOTAL COST", "CPU COST", "GPU COST", "COMPUTE COST", "STORAGE COST"]
+
+    platform_costs = pd.DataFrame(platform_executions)
+    total_platform_executions = len(platform_executions)
+
+    for cost_key in costs_keys:
+        calculated_cost = platform_costs[cost_key].sum()
+        execution_costs[cost_key] += calculated_cost/total_platform_executions
+
 
 def buildHistogram(cost_table, bin_by):
     top = cost_table.groupby(bin_by)['TOTAL COST'].sum().nlargest(10).index
