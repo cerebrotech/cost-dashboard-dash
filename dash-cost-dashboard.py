@@ -81,9 +81,7 @@ def get_aggregated_allocations(selection):
     res.raise_for_status()
     alloc_data = res.json()["data"]
 
-    filtered = filter(lambda costData: costData["name"] != "__idle__", alloc_data)
-
-    return list(filtered)
+    return alloc_data
 
 def get_execution_cost_table(aggregated_allocations: List) -> pd.DataFrame:
 
@@ -93,9 +91,11 @@ def get_execution_cost_table(aggregated_allocations: List) -> pd.DataFrame:
     gpu_cost_key = ["gpuCost", "gpuCostAdjustment"]
     storage_cost_keys = ["pvCost", "ramCost", "pvCostAdjustment", "ramCostAdjustment"]
 
-    data = [costData for costData in aggregated_allocations if not costData["name"].startswith("__")]
+    for costData in aggregated_allocations:
+        # Skip any cost data that starts with __ like __idle__ or __unallocated__
+        if costData["name"].startswith("__"):
+            continue
 
-    for costData in data:
         workload_type, project_id, project_name, username, organization, billing_tag = costData["name"].split("/")
         cpu_cost = sum([costData.get(k,0) for k in cpu_cost_key])
         gpu_cost = sum([costData.get(k,0) for k in gpu_cost_key])
