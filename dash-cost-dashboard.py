@@ -102,6 +102,10 @@ def get_execution_cost_table(aggregated_allocations: List) -> pd.DataFrame:
         compute_cost = cpu_cost + gpu_cost
         storage_cost = sum([costData.get(k,0) for k in storage_cost_keys])
         total_cost = compute_cost + storage_cost
+
+        # Change __unallocated__ billing tag into "No Tag"
+        billing_tag = billing_tag if billing_tag != '__unallocated__' else "No tag"
+
         exec_data.append({
             "TYPE": workload_type,
             "PROJECT NAME": project_name,
