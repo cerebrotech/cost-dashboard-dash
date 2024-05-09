@@ -53,7 +53,7 @@ window_to_param = {
     "7d": "Last 7 days"
 }
 
-def get_today_timestamp():
+def get_today_timestamp() -> pd.Timestamp:
     return pd.Timestamp("today", tz="UTC").normalize()
 
 def get_time_delta(time_span):
@@ -421,7 +421,7 @@ def project_clicked(clickData):
     [Output('billing_select', 'value')],
     [Input('tag_chart', 'clickData')]
 )
-def user_clicked(clickData):
+def billing_tag_clicked(clickData):
     if clickData is not None:
         x_value = clickData['points'][0]['y']
         return [x_value]
