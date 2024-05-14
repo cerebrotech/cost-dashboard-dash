@@ -132,12 +132,24 @@ def get_execution_cost_table(aggregated_allocations: List) -> pd.DataFrame:
 def buildHistogram(cost_table, bin_by):
     top = cost_table.groupby(bin_by)['TOTAL COST'].sum().nlargest(10).index
     costs = cost_table[cost_table[bin_by].isin(top)]
+    data_index = costs.groupby(bin_by)['TOTAL COST'].sum().sort_values(ascending=False).index
     title = "Top " + bin_by.title() + " by Total Cost"
     chart = px.histogram(costs, x='TOTAL COST', y=bin_by, orientation='h',
                               title=title, labels={bin_by: bin_by.title(), 'TOTAL COST': 'Total Cost'},
                               hover_data={'TOTAL COST': '$:.2f'},
-                              category_orders={bin_by: costs.groupby(bin_by)['TOTAL COST'].sum().sort_values(ascending=False).index})
-    chart.update_layout(title_text=title, title_x=0.5, xaxis_tickprefix = '$', xaxis_tickformat = ',.')
+                              category_orders={bin_by: data_index})
+    chart.update_layout(
+        title_text=title,
+        title_x=0.5,
+        xaxis_tickprefix = '$',
+        xaxis_tickformat = ',.',
+        yaxis={  # Trim labels that are larger than 15 chars
+            'tickmode': 'array',
+            'tickvals': data_index,
+            'ticktext': [f"{txt[:15]}..." if len(txt) > 15 else txt for txt in chart['layout']['yaxis']['categoryarray']]
+        },
+        dragmode=False
+    )
     chart.update_xaxes(title_text="Total Cost")
     chart.update_traces(hovertemplate='$%{x:.2f}<extra></extra>')
 
@@ -199,7 +211,8 @@ app.layout = html.Div([
                 id='billing_select',
                 options = ['No data'],
                 clearable = True,
-                searchable = True
+                searchable = True,
+                style={"width": "100%", "whiteSpace":"nowrap"}
             ),
             width=3
         ),
@@ -212,7 +225,8 @@ app.layout = html.Div([
                 id='project_select',
                 options = ['No data'],
                 clearable = True,
-                searchable = True
+                searchable = True,
+                style={"width": "100%", "whiteSpace":"nowrap"}
             ),
             width=3
         ),
@@ -225,7 +239,8 @@ app.layout = html.Div([
                 id='user_select',
                 options = ['No data'],
                 clearable = True,
-                searchable = True
+                searchable = True,
+                style={"width": "100%", "whiteSpace":"nowrap"}
             ),
             width=3
         ),
