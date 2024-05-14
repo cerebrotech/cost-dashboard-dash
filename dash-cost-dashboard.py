@@ -315,53 +315,34 @@ app.layout = html.Div([
     dbc.Row([], style={"margin-top": "50px"}),
 ], className="container")
 
-@app.callback(
-     [Output('cumulative-daily-costs', 'figure'),
-      Output('totalcard', 'children'),
-      Output('computecard', 'children'),
-      Output('storagecard', 'children'),
-      Output('billing_select', 'options'),
-      Output('project_select', 'options'),
-      Output('user_select', 'options'),
-      Output('user_chart', 'figure'),
-      Output('project_chart', 'figure'),
-      Output('org_chart', 'figure'),
-      Output('tag_chart', 'figure'),
-      Output('table-container', 'children')],
-     [Input('time_span_select', 'value'),
-      Input('user_select', 'value'),
-      Input('project_select', 'value'),
-      Input('billing_select', 'value')]
-)
-def update(time_span, user, project, billing_tag):
-    allocations = get_aggregated_allocations(time_span)
-    if not allocations:
-        return {}, html.H4('No data'), html.H4('No data'), html.H4('No data'), [], [], [], None, None, None, None, None
 
-    cost_table = get_execution_cost_table(allocations)
+def get_dropdown_filters(cost_table):
+    # First obtain a unique sorted list for each dropdown
+    users_list = sorted(cost_table['USER'].unique().tolist(), key=str.casefold)
+    projects_list = sorted(cost_table['PROJECT NAME'].unique().tolist(), key=str.casefold)
 
-    if user is not None:
-        cost_table = cost_table[cost_table['USER'] == user]
+    unique_billing_tags = cost_table['BILLING TAG'].unique()
+    unique_billing_tags = unique_billing_tags[unique_billing_tags != NO_TAG]
+    billing_tags_list = sorted(unique_billing_tags.tolist(), key=str.casefold)
+    billing_tags_list.insert(0, NO_TAG)
 
-    if project is not None:
-        cost_table = cost_table[cost_table['PROJECT NAME'] == project]
+    # For each dropdown data return a dict containing the value/label/title (useful for tooltips)
+    billing_tags_dropdown = [{"label": billing_tag, "value": billing_tag, "title": billing_tag} for billing_tag in billing_tags_list]
+    projects_dropdown = [{"label": project, "value": project, "title": project} for project in projects_list]
+    users_dropdown = [{"label": user, "value": user, "title": user} for user in users_list]
 
-    if billing_tag is not None:
-        cost_table = cost_table[cost_table['BILLING TAG'] == billing_tag]
+    return billing_tags_dropdown, projects_dropdown, users_dropdown
 
+
+def get_cost_cards(cost_table):
     total_sum = "${:.2f}".format(cost_table['TOTAL COST'].sum())
     compute_sum = "${:.2f}".format(cost_table['COMPUTE COST'].sum())
     storage_sum = "${:.2f}".format(cost_table['STORAGE COST'].sum())
 
-    users = sorted(cost_table['USER'].unique().tolist(), key=str.casefold)
-    projects = sorted(cost_table['PROJECT NAME'].unique().tolist(), key=str.casefold)
+    return total_sum, compute_sum, storage_sum
 
-    # Order billing-tags alphabetically and set "No tag" as the first item
-    unique_billing_tags = cost_table['BILLING TAG'].unique()
-    unique_billing_tags = unique_billing_tags[unique_billing_tags != NO_TAG]
-    billing_tags = sorted(unique_billing_tags.tolist(), key=str.casefold)
-    billing_tags.insert(0, NO_TAG)
 
+def get_cumulative_cost_graph(cost_table, time_span):
     x_date_series = pd.date_range(get_today_timestamp() - get_time_delta(time_span), get_today_timestamp()).strftime('%B %-d')
     cost_table_grouped_by_date = cost_table.groupby('FORMATTED START')
 
@@ -380,12 +361,18 @@ def update(time_span, user, project, billing_tag):
             yaxis_tickformat = ',.'
         )
     }
+    return cumulative_cost_graph
 
+
+def get_histogram_charts(cost_table):
     user_chart = buildHistogram(cost_table, 'USER')
     project_chart = buildHistogram(cost_table, 'PROJECT NAME')
     org_chart = buildHistogram(cost_table, 'ORGANIZATION')
     tag_chart = buildHistogram(cost_table, 'BILLING TAG')
+    return user_chart, project_chart, org_chart, tag_chart
 
+
+def workload_cost_details(cost_table):
     formatted = {'locale': {}, 'nully': '', 'prefix': None, 'specifier': '$,.2f'}
     table = dash_table.DataTable(
         columns=[
@@ -407,8 +394,54 @@ def update(time_span, user, project, billing_tag):
             'fontWeight': 'bold'
         }
     )
+    return table
 
-    return cumulative_cost_graph, html.H4(total_sum), html.H4(compute_sum), html.H4(storage_sum), billing_tags, projects, users, user_chart, project_chart, org_chart, tag_chart, table
+@app.callback(
+    [
+        Output('billing_select', 'options'),
+        Output('project_select', 'options'),
+        Output('user_select', 'options'),
+        Output('totalcard', 'children'),
+        Output('computecard', 'children'),
+        Output('storagecard', 'children'),
+        Output('cumulative-daily-costs', 'figure'),
+        Output('user_chart', 'figure'),
+        Output('project_chart', 'figure'),
+        Output('org_chart', 'figure'),
+        Output('tag_chart', 'figure'),
+        Output('table-container', 'children')
+    ],
+    [
+        Input('time_span_select', 'value'),
+        Input('billing_select', 'value'),
+        Input('project_select', 'value'),
+        Input('user_select', 'value')
+    ]
+)
+def update(time_span, billing_tag, project, user):
+    allocations = get_aggregated_allocations(time_span)
+    if not allocations:
+        return {}, html.H4('No data'), html.H4('No data'), html.H4('No data'), [], [], [], None, None, None, None, None
+
+    cost_table = get_execution_cost_table(allocations)
+
+    if user is not None:
+        cost_table = cost_table[cost_table['USER'] == user]
+
+    if project is not None:
+        cost_table = cost_table[cost_table['PROJECT NAME'] == project]
+
+    if billing_tag is not None:
+        cost_table = cost_table[cost_table['BILLING TAG'] == billing_tag]
+
+    return (
+        *get_dropdown_filters(cost_table),
+        *get_cost_cards(cost_table),
+        get_cumulative_cost_graph(cost_table, time_span),
+        *get_histogram_charts(cost_table),
+        workload_cost_details(cost_table),
+    )
+
 
 @app.callback(
     [Output('user_select', 'value')],
