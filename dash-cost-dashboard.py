@@ -75,6 +75,7 @@ def get_aggregated_allocations(selection):
             "label:dominodatalab.com/billing-tag,"
         ),
         "accumulate": False,
+        "shareIdle": True,
     }
 
 
@@ -89,22 +90,26 @@ def get_execution_cost_table(aggregated_allocations: List) -> pd.DataFrame:
 
     exec_data = []
 
-    cpu_cost_key = ["cpuCost", "cpuCostAdjustment"]
-    gpu_cost_key = ["gpuCost", "gpuCostAdjustment"]
     storage_cost_keys = ["pvCost", "ramCost", "pvCostAdjustment", "ramCostAdjustment"]
 
     for costData in aggregated_allocations:
         # Skip any cost data that starts with __ like __idle__ or __unallocated__
-        if costData["name"].startswith("__"):
-            continue
+        # if costData["name"].startswith("__"):
+        #     continue
 
         workload_type, project_id, project_name, username, organization, billing_tag = costData["name"].split("/")
-        cpu_cost = sum([costData.get(k,0) for k in cpu_cost_key])
-        gpu_cost = sum([costData.get(k,0) for k in gpu_cost_key])
+        
+        cpu_cost = costData["cpuCost"] + costData["cpuCostAdjustment"]
+        gpu_cost = costData["gpuCost"] + costData["gpuCostAdjustment"]
         compute_cost = cpu_cost + gpu_cost
-        storage_cost = sum([costData.get(k,0) for k in storage_cost_keys])
-        total_cost = compute_cost + storage_cost
+        
+        # pv_cost = costData["pvCost"] + costData["pvCostAdjustment"] # FIXME AFTER PV_COST
+        ram_cost = costData["ramCost"] + costData["ramCostAdjustment"]
+        
+        total_cost = costData["totalCost"]
 
+        storage_cost = total_cost - compute_cost
+        
         # Change __unallocated__ billing tag into "No Tag"
         billing_tag = billing_tag if billing_tag != '__unallocated__' else NO_TAG
 
@@ -119,6 +124,7 @@ def get_execution_cost_table(aggregated_allocations: List) -> pd.DataFrame:
             "CPU COST": cpu_cost,
             "GPU COST": gpu_cost,
             "COMPUTE COST": compute_cost,
+            "MEMORY COST": ram_cost,
             "STORAGE COST": storage_cost,
             "TOTAL COST": total_cost
         })
