@@ -1,3 +1,13 @@
+import os
+import re
+import requests
+from datetime import timedelta
+from typing import List
+
+import dash_bootstrap_components as dbc
+import pandas as pd
+import plotly.express as px
+import plotly.graph_objs as go
 from dash import (
     Dash,
     dash_table,
@@ -5,15 +15,8 @@ from dash import (
     html
 )
 from dash.dependencies import Input, Output
-import dash_bootstrap_components as dbc
-import pandas as pd
-import os
-import re
-import requests
-import plotly.graph_objs as go
-import plotly.express as px
-from typing import List
-from datetime import timedelta
+from pandas import DataFrame
+
 
 api_proxy = os.environ["DOMINO_API_PROXY"]
 
@@ -136,7 +139,7 @@ def get_execution_cost_table(aggregated_allocations: List) -> pd.DataFrame:
     return execution_costs
 
 def buildHistogram(cost_table, bin_by):
-    top = cost_table.groupby(bin_by)['TOTAL COST'].sum().nlargest(10).index
+    top = clean_df(cost_table, bin_by).groupby(bin_by)['TOTAL COST'].sum().nlargest(10).index
     costs = cost_table[cost_table[bin_by].isin(top)]
     data_index = costs.groupby(bin_by)['TOTAL COST'].sum().sort_values(ascending=False).index
     title = "Top " + bin_by.title() + " by Total Cost"
@@ -322,10 +325,16 @@ app.layout = html.Div([
 ], className="container")
 
 
+def clean_values(values_list: list) -> list:
+    return values_list[1:] if values_list[0].startswith("__") else values_list
+
+def clean_df(df: DataFrame, col: str):
+    return df[~df[col].str.startswith("__")]
+
 def get_dropdown_filters(cost_table):
     # First obtain a unique sorted list for each dropdown
-    users_list = sorted(cost_table['USER'].unique().tolist(), key=str.casefold)
-    projects_list = sorted(cost_table['PROJECT NAME'].unique().tolist(), key=str.casefold)
+    users_list = clean_values(sorted(cost_table['USER'].unique().tolist(), key=str.casefold))
+    projects_list = clean_values(sorted(cost_table['PROJECT NAME'].unique().tolist(), key=str.casefold))
 
     unique_billing_tags = cost_table['BILLING TAG'].unique()
     unique_billing_tags = unique_billing_tags[unique_billing_tags != NO_TAG]
@@ -391,7 +400,7 @@ def workload_cost_details(cost_table):
             {'name': "GPU COST", 'id': "GPU COST", 'type': 'numeric', 'format': formatted},
             {'name': "STORAGE COST", 'id': "STORAGE COST", 'type': 'numeric', 'format': formatted},
         ],
-        data=cost_table.to_dict('records'),
+        data=clean_df(cost_table, "TYPE").to_dict('records'),
         page_size=10,
         sort_action='native',
         style_cell={'fontSize': '11px'},
