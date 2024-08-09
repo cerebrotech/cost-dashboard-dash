@@ -2,7 +2,7 @@ import os
 import re
 import requests
 from datetime import timedelta
-from typing import List
+from typing import Callable, List
 
 import dash_bootstrap_components as dbc
 import pandas as pd
@@ -20,7 +20,6 @@ from pandas import (
     Timestamp
 )
 
-api_proxy = os.environ["DOMINO_API_PROXY"]
 
 def get_domino_namespace() -> str:
     api_host = os.environ["DOMINO_API_HOST"]
@@ -31,9 +30,8 @@ def get_domino_namespace() -> str:
 namespace = get_domino_namespace()
 
 base_url = f"http://domino-cost.{namespace}:9000"
-assets_url = f"{base_url}/asset"
-allocations_url = f"{base_url}/allocation"
 
+api_proxy = os.environ["DOMINO_API_PROXY"]
 auth_url = f"{api_proxy}/account/auth/service/authenticate"
 
 class TokenExpiredException(Exception):
@@ -61,6 +59,50 @@ window_to_param = {
 def get_today_timestamp() -> Timestamp:
     return pd.Timestamp("today", tz="UTC").normalize()
 
+def process_or_zero(func: Callable, posInt: int) -> int:
+    if posInt > 0:
+        return func
+    else:
+        return 0
+
+def distribute_cost(df: DataFrame) -> DataFrame:
+    """
+    distributes __unallocated__ cost for cleaner representation.
+    """
+    fiels_list = [ "CPU COST",	"GPU COST",	"COMPUTE COST",	"MEMORY COST",	"STORAGE COST",	"ALLOC COST"]
+    cost_un = df[df["TYPE"].str.startswith("__")]
+    cost_clean = df[~df["TYPE"].str.startswith("__")]
+
+    for field in fiels_list:
+        cost_clean[field] = cost_clean[field] + ((cost_clean[field] / cost_clean[field].sum()) * cost_un[field].sum())
+    return cost_clean
+
+
+def get_cloud_cost_sum(selection) -> float:
+    cloud_cost_url = f"{cost_url}/cloudCost"
+
+    parameters = {
+        "window": selection,
+        "aggregate": "invoiceEntityID"
+    }
+
+    cloud_cost_sum = 0
+
+    try:
+        response = requests.request("GET", cloud_cost_url, headers=auth_header, params=parameters)
+        response.raise_for_status()
+        
+        cost_amertized = response.json()['data']['sets']
+        invoice_entity_id = list(cost_amertized[0]['cloudCosts'].keys())[0]   
+        
+        for cost in cost_amertized:
+            if cost['cloudCosts']:
+                cloud_cost_sum += cost['cloudCosts'][invoice_entity_id]['amortizedNetCost']['cost']
+    except Exception as e: # handle for users without cloudcost, or no data in cloudcost
+        print(e)
+        
+    return cloud_cost_sum
+
 def get_time_delta(time_span) -> timedelta:
         if time_span == 'lastweek':
             days_to_use = 7
@@ -69,6 +111,8 @@ def get_time_delta(time_span) -> timedelta:
         return timedelta(days=days_to_use-1)
 
 def get_aggregated_allocations(selection: str) -> List:
+    allocations_url = f"{base_url}/allocation"
+
     params = {
         "window": selection,
         "aggregate": (
@@ -81,6 +125,8 @@ def get_aggregated_allocations(selection: str) -> List:
         ),
         "accumulate": False,
         "shareIdle": True,
+        "shareTenancyCosts": True,
+        "shareSplit": "weighted",
     }
 
     res = requests.get(allocations_url, params=params, headers=auth_header)
@@ -90,7 +136,7 @@ def get_aggregated_allocations(selection: str) -> List:
 
     return alloc_data
 
-def get_execution_cost_table(aggregated_allocations: List) -> DataFrame:
+def get_execution_cost_table(aggregated_allocations: List, cloud_cost: float) -> DataFrame:
 
     exec_data = []
 
@@ -106,9 +152,9 @@ def get_execution_cost_table(aggregated_allocations: List) -> DataFrame:
         
         ram_cost = costData["ramCost"] + costData["ramCostAdjustment"]
         
-        total_cost = costData["totalCost"]
+        alloc_total_cost = costData["totalCost"]
 
-        storage_cost = total_cost - compute_cost
+        storage_cost = alloc_total_cost - compute_cost
         
         # Change __unallocated__ billing tag into "No Tag"
         billing_tag = billing_tag if billing_tag != '__unallocated__' else NO_TAG
@@ -126,9 +172,13 @@ def get_execution_cost_table(aggregated_allocations: List) -> DataFrame:
             "COMPUTE COST": compute_cost,
             "MEMORY COST": ram_cost,
             "STORAGE COST": storage_cost,
-            "TOTAL COST": total_cost
+            "ALLOC COST": alloc_total_cost
         })
-    execution_costs = pd.DataFrame(exec_data)
+    execution_costs = distribute_cost(pd.DataFrame(exec_data))
+    cloud_cost_diff = cloud_cost - execution_costs["ALLOC COST"].sum()
+    
+    execution_costs['CLOUD COST'] = execution_costs['ALLOC COST'] / execution_costs["ALLOC COST"].sum() * cloud_cost_diff
+    execution_costs['TOTAL COST'] = execution_costs['ALLOC COST'] + execution_costs['CLOUD COST']
 
     execution_costs['START'] = pd.to_datetime(execution_costs['START'])
     execution_costs['FORMATTED START'] = execution_costs['START'].dt.strftime('%B %-d')
@@ -260,6 +310,12 @@ app.layout = html.Div([
         ])),
         dbc.Col(dbc.Card(children=[
             dbc.CardBody([
+                html.H3("Cloud"),
+                html.H4("Loading", id='cloudcard')
+            ])
+        ])),
+        dbc.Col(dbc.Card(children=[
+            dbc.CardBody([
                 html.H3("Compute"),
                 html.H4("Loading", id='computecard')
             ])
@@ -356,10 +412,11 @@ def get_dropdown_filters(cost_table: DataFrame) -> tuple:
 
 def get_cost_cards(cost_table: DataFrame) -> tuple[str]:
     total_sum = "${:.2f}".format(cost_table['TOTAL COST'].sum())
+    cloud_sum = "${:.2f}".format(cost_table['CLOUD COST'].sum())
     compute_sum = "${:.2f}".format(cost_table['COMPUTE COST'].sum())
     storage_sum = "${:.2f}".format(cost_table['STORAGE COST'].sum())
 
-    return total_sum, compute_sum, storage_sum
+    return total_sum, cloud_sum, compute_sum, storage_sum
 
 
 def get_cumulative_cost_graph(cost_table: DataFrame, time_span: timedelta):
@@ -404,6 +461,8 @@ def workload_cost_details(cost_table: DataFrame):
             {'name': "CPU COST", 'id': "CPU COST", 'type': 'numeric', 'format': formatted},
             {'name': "GPU COST", 'id': "GPU COST", 'type': 'numeric', 'format': formatted},
             {'name': "STORAGE COST", 'id': "STORAGE COST", 'type': 'numeric', 'format': formatted},
+            {'name': "CLOUD COST", 'id': "CLOUD COST", 'type': 'numeric', 'format': formatted},
+            {'name': "TOTAL COST", 'id': "TOTAL COST", 'type': 'numeric', 'format': formatted},
         ],
         data=clean_df(cost_table, "TYPE").to_dict('records'),
         page_size=10,
@@ -422,6 +481,7 @@ def workload_cost_details(cost_table: DataFrame):
         Output('project_select', 'options'),
         Output('user_select', 'options'),
         Output('totalcard', 'children'),
+        Output('cloudcard', 'children'),
         Output('computecard', 'children'),
         Output('storagecard', 'children'),
         Output('cumulative-daily-costs', 'figure'),
@@ -438,12 +498,14 @@ def workload_cost_details(cost_table: DataFrame):
         Input('user_select', 'value')
     ]
 )
+
 def update(time_span, billing_tag, project, user):
+    cloud_cost_sum = get_cloud_cost_sum(time_span)
     allocations = get_aggregated_allocations(time_span)
     if not allocations:
         return [], [], [], 'No data', 'No data', 'No data', {}, None, None, None, None, None
 
-    cost_table = get_execution_cost_table(allocations)
+    cost_table = get_execution_cost_table(allocations, cloud_cost_sum)
 
     if user is not None:
         cost_table = cost_table[cost_table['USER'] == user]
