@@ -85,6 +85,18 @@ def distribute_cost(df: DataFrame) -> DataFrame:
         cost_allocated[field] = cost_allocated[field] + ((cost_allocated["ALLOC COST"] / cost_allocated_total_sum) * cost_unallocated[field].sum())
     return cost_allocated
 
+def distribute_cloud_cost(df: DataFrame, cost: float) -> DataFrame:
+    """
+    distribute unaccounted cloud cost accross allocated executions.
+    """
+    accounted_cost = df["ALLOC COST"].sum()
+    cloud_cost_unaccounted = process_or_zero(cost - accounted_cost, cost)
+   
+    df['CLOUD COST'] = cloud_cost_unaccounted * (df['ALLOC COST'] / accounted_cost)
+    df['TOTAL COST'] = df['ALLOC COST'] + df['CLOUD COST']
+    
+    return df
+
 def clean_values(values_list: list) -> list:
     """
     remove "__unallocated__" from values'
@@ -186,16 +198,14 @@ def get_execution_cost_table(aggregated_allocations: List, cloud_cost: float) ->
             "STORAGE COST": storage_cost,
             "ALLOC COST": alloc_total_cost
         })
+
     execution_costs = distribute_cost(pd.DataFrame(exec_data))
-    cloud_cost_diff = process_or_zero(cloud_cost - execution_costs["ALLOC COST"].sum(), cloud_cost)
-    
-    execution_costs['CLOUD COST'] = process_or_zero(execution_costs['ALLOC COST'] / execution_costs["ALLOC COST"].sum() * cloud_cost_diff, cloud_cost)
-    execution_costs['TOTAL COST'] = execution_costs['ALLOC COST'] + execution_costs['CLOUD COST']
+    distributed_cost = distribute_cloud_cost(execution_costs, cloud_cost)
 
-    execution_costs['START'] = pd.to_datetime(execution_costs['START'])
-    execution_costs['FORMATTED START'] = execution_costs['START'].dt.strftime('%B %-d')
+    distributed_cost['START'] = pd.to_datetime(distributed_cost['START'])
+    distributed_cost['FORMATTED START'] = distributed_cost['START'].dt.strftime('%B %-d')
 
-    return execution_costs
+    return distributed_cost
 
 def get_cost_cards(cost_table: DataFrame) -> tuple[str]:
     total_sum = "${:.2f}".format(cost_table['TOTAL COST'].sum())
