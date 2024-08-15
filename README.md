@@ -1,6 +1,7 @@
 # IMPORTANT
 
 This repository has now been archived. No further work will be merged here.
+
 New changes will be available in the new [costs-dashboard repository](https://github.com/dominodatalab/costs-dashboard)
 
 # Domino Cost Dashboard (Uses Dash by Plotly)
